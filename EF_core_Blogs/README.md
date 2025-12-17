@@ -33,6 +33,10 @@ optionsBuilder.UseSqlServer(@"Data Source=(localdb)\ProjectModels;Initial Catalo
 | Primary Key | `[Key]` | `HasKey(b => b.Bookkey)` |
 | Ignore Property | `[NotMapped]` | `Ignore(p => p.dateTime)` |
 | Comment | `[Comment("text")]` | `HasComment("text")` |
+| Default Value | N/A | `HasDefaultValue(value)` |
+| Default Value (SQL) | N/A | `HasDefaultValueSql("GETDATE()")` |
+| Computed Column | N/A | `HasComputedColumnSql("[Col1] + [Col2]")` |
+| Identity Column | `[DatabaseGenerated(DatabaseGeneratedOption.Identity)]` | `ValueGeneratedOnAdd()` |
 
 ---
 
@@ -57,6 +61,53 @@ modelBuilder.Entity<Book>().HasKey(b => new { b.Bookkey, b.Author });
 modelBuilder.HasDefaultSchema("blogging");
 ```
 
+### Default Values
+```csharp
+// Static default value
+modelBuilder.Entity<Book>()
+    .Property(b => b.Rating)
+    .HasDefaultValue(2);
+
+// SQL function default value
+modelBuilder.Entity<Book>()
+    .Property(b => b.PublishOn)
+    .HasDefaultValueSql("GETDATE()");
+```
+
+### Computed Columns
+```csharp
+// Virtual column calculated from other columns
+modelBuilder.Entity<Author>()
+    .Property(a => a.DisplayName)
+    .HasComputedColumnSql("[LastName] + ', ' + [FirstName]");
+```
+- Not physically stored in the table
+- Calculated on-the-fly during queries
+- Cannot be manually set in code
+- Useful for derived data (full names, calculations, etc.)
+
+### Identity Columns with Non-Int Types
+**Important**: EF Core only recognizes `int` or `long` as primary keys by convention.
+
+For other types like `byte`, `short`, etc., you must explicitly configure identity:
+
+**Using Data Annotations:**
+```csharp
+[DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+public byte Id { get; set; }
+```
+
+**Using Fluent API:**
+```csharp
+modelBuilder.Entity<Category>()
+    .Property(c => c.Id)
+    .ValueGeneratedOnAdd();
+```
+
+**Common Issue**: If you create a table without identity and try to add it later:
+- Error: "To change the IDENTITY property of a column, the column needs to be dropped and recreated"
+- Solution: Delete the migration and create a new one with the correct configuration
+
 ### Exclude from Migrations
 ```csharp
 // Create table directly in DB without migrations
@@ -74,7 +125,9 @@ modelBuilder.Ignore<Post>(); // Won't create table
 
 - **Blog**: Main entity with `url`, `Rating`, and navigation to Posts
 - **Post**: Related entity with `Title`, `Content`, and navigation to Blog
-- **Book**: Demonstrates composite primary key
+- **Book**: Demonstrates composite primary key, default values
+- **Author**: Demonstrates computed columns (DisplayName)
+- **Category**: Demonstrates identity column with byte type
 - **AudiedEntry**: Registered via OnModelCreating method
 
 ---
@@ -86,6 +139,48 @@ modelBuilder.Ignore<Post>(); // Won't create table
 - Navigation properties enable automatic relationship discovery
 - `[NotMapped]` excludes properties from database mapping
 - Composite keys require Fluent API configuration
+- **Always configure identity** for non-int primary key types
+- Use computed columns for derived data instead of storing redundant values
+- Set default values in database (not in code) for consistency
+
+---
+
+## Common Issues & Solutions
+
+### 1. Computed Column Not Visible
+- **Problem**: Column doesn't appear in View Data window
+- **Solution**: Refresh database connection or query the data programmatically
+- Computed columns are automatically populated by SQL Server
+
+### 2. Primary Key Violation with Byte/Short Types
+- **Problem**: Default value (0) inserted instead of auto-increment
+- **Solution**: Add `[DatabaseGenerated(DatabaseGeneratedOption.Identity)]` or use `ValueGeneratedOnAdd()`
+
+### 3. Migration Already Applied
+- **Problem**: Changes in OnModelCreating don't reflect in database
+- **Solution**: Create a new migration after configuration changes
+- Use `Add-Migration <name>` then `Update-Database`
+
+---
+
+## Git Best Practices
+
+### .gitignore for .NET Projects
+Always exclude:
+- `.vs/` - Visual Studio cache and user settings
+- `bin/` and `obj/` - Build output folders
+- `*.user`, `*.suo` - User-specific files
+- `*.mdf`, `*.ldf` - SQL Server database files
+
+### Branch Management
+- Use `main` as the default branch (industry standard)
+- Rename `master` to `main`: `git branch -m master main`
+
+### Common Git Issues
+- **Non-fast-forward error**: Remote has changes you don't have locally
+  - Solution: `git pull origin main --rebase` then `git push`
+- **Divergent branches**: Local and remote have different commits
+  - Solution: Choose merge or rebase strategy: `git pull --no-rebase` or `git pull --rebase`
 
 ---
 
@@ -96,6 +191,7 @@ modelBuilder.Ignore<Post>(); // Won't create table
 - Query operations (LINQ)
 - Change tracking
 - Eager/Lazy loading
+- Indexes and query optimization
 
 ---
 

@@ -9,6 +9,7 @@ namespace EF_core_Blogs.Models
 {
     // Data Annotations to specify the table name in the database
     // [Table("Posts")]
+    [NotMapped]
     public class Post
     {
         public int Id { get; set; }

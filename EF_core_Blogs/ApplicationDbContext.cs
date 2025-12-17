@@ -58,10 +58,28 @@ namespace EF_core_Blogs
             // .HasName("Bookkey"); (code)
 
             // Make a composite primary key
-            modelBuilder.Entity<Book>().HasKey(b => new { b.Bookkey, b.Author });
+            // modelBuilder.Entity<Book>().HasKey(b => b.Bookkey);
+
+            // Set a default value for a column with fluent API without using a sql built-in function (there is no data-anotation for it)
+            // modelBuilder.Entity<Book>().Property(b => b.Rating).HasDefaultValue(2); (code)
+
+            // set a default value by using a sql built in function (there is no data-anotation for it) 
+            // modelBuilder.Entity<Book>().Property(b => b.PublishOn).HasDefaultValueSql("GETDATE()"); (code)
+
+            // Computed Column : is a column that is not physically stored in the table, but is computed from other columns in the table
+            // it is a virtual column that is calculated on the fly when you query the table depending on other columns
+            // modelBuilder.Entity<Author>().Property(b => b.DisplayName).HasComputedColumnSql("[LastName] + ', ' +[FirstName]");
+
+            // Specify that the Id property in the Category entity is an identity column with fluent API
+            // This error appear : To change the IDENTITY property of a column, the column needs to be dropped and recreated.
+            // you have to drop the column and recreate it with the identity property (delete the migration of that table and create a new one)
+            modelBuilder.Entity<Category>().Property(c => c.Id).ValueGeneratedOnAdd();
+
         }
         public DbSet<Blog> Blogs { get; set; }
 
         public DbSet<Book> Books { get; set; }
-    }
+        public DbSet<Author> Authors { get; set; }
+        public DbSet<Category> Categories { get; set; }
+        }
 }
