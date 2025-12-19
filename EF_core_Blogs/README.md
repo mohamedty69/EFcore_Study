@@ -31,6 +31,7 @@ optionsBuilder.UseSqlServer(@"Data Source=(localdb)\ProjectModels;Initial Catalo
 | Data Type | `[Column(TypeName = "varchar(200)")]` | `HasColumnType("varchar(200)")` |
 | Max Length | `[MaxLength(200)]` | `HasMaxLength(200)` |
 | Primary Key | `[Key]` | `HasKey(b => b.Bookkey)` |
+| Foreign Key | `[ForeignKey("PropertyName")]` | `HasForeignKey(p => p.FK)` |
 | Ignore Property | `[NotMapped]` | `Ignore(p => p.dateTime)` |
 | Comment | `[Comment("text")]` | `HasComment("text")` |
 | Default Value | N/A | `HasDefaultValue(value)` |
@@ -40,12 +41,215 @@ optionsBuilder.UseSqlServer(@"Data Source=(localdb)\ProjectModels;Initial Catalo
 
 ---
 
-## Important Tips
+## Relationships in EF Core
+
+### One-to-Many Relationship
+
+#### Method 1: Using Both Navigation Properties (Bidirectional)
+```csharp
+// Principal Entity (Blog)
+public class Blog0
+{
+    public int Id { get; set; }
+    public List<Post0> Posts { get; set; }  // Collection navigation
+}
+
+// Dependent Entity (Post)
+public class Post0
+{
+    public int Id { get; set; }
+    public int Blog0Id { get; set; }  // Foreign key
+    public Blog0 Blog0 { get; set; }  // Reference navigation
+}
+
+// Configuration
+modelBuilder.Entity<Blog0>()
+    .HasMany(b => b.Posts)
+    .WithOne(p => p.Blog0);
+
+// OR from the other side
+modelBuilder.Entity<Post0>()
+    .HasOne(p => p.Blog0)
+    .WithMany(b => b.Posts);
+```
+- Both entities have navigation properties
+- Relationship is defined on both sides
+
+#### Method 2: Using Only Collection Navigation (Unidirectional)
+```csharp
+// Principal Entity
+public class Blog0
+{
+    public int Id { get; set; }
+    public List<Post0> Posts { get; set; }
+}
+
+// Dependent Entity (no navigation property to Blog)
+public class Post0
+{
+    public int Id { get; set; }
+    public int Blog0Id { get; set; }  // Only foreign key
+}
+
+// Configuration
+modelBuilder.Entity<Blog0>()
+    .HasMany(b => b.Posts)
+    .WithOne();  // No navigation property specified
+```
+- You can access posts from blog, but NOT blog from post
+- EF Core still creates the foreign key automatically
+
+#### Method 3: Using Only Foreign Key (No Navigation Properties)
+```csharp
+// No navigation properties in either entity
+public class Post0
+{
+    public int Id { get; set; }
+    public int Blog0Id { get; set; }  // Foreign key only
+}
+
+// Configuration - must specify foreign key explicitly
+modelBuilder.Entity<Post0>()
+    .HasOne<Blog0>()
+    .WithMany()
+    .HasForeignKey(p => p.Blog0Id);
+```
+- No navigation properties in the entities
+- Relationship is configured entirely through Fluent API
+
+### One-to-One Relationship
+
+```csharp
+// Principal Entity
+public class Blog0
+{
+    public int Id { get; set; }
+    public BlogImage BlogImage { get; set; }
+}
+
+// Dependent Entity
+public class BlogImage
+{
+    public int Id { get; set; }
+    public int BlogForeignKey { get; set; }
+    public Blog0 Blog { get; set; }
+}
+
+// Configuration with Fluent API
+modelBuilder.Entity<Blog0>()
+    .HasOne(b => b.BlogImage)
+    .WithOne(bi => bi.Blog)
+    .HasForeignKey<BlogImage>(bi => bi.BlogForeignKey);
+
+// OR using Data Annotations
+[ForeignKey("BlogForeignKey")]
+public Blog0 Blog { get; set; }
+```
+- Each entity has a reference to the other
+- Configuration sets up the one-to-one relationship
+
+### Relationships with Non-Primary Key (Alternative Key)
+
+**Important**: When foreign key doesn't reference the primary key of the principal entity.
+
+```csharp
+// Principal Entity
+public class Car
+{
+    public int CarId { get; set; }  // Primary key
+    public string LicensePlate { get; set; }  // Alternative unique key
+    public List<RecordOfSales> RecordsOfSales { get; set; }
+}
+
+// Dependent Entity
+public class RecordOfSales
+{
+    public int RecordOfSalesId { get; set; }
+    public string CarLicensePlate { get; set; }  // FK to LicensePlate (not CarId!)
+    public Car Car { get; set; }
+}
+
+// Configuration - Must specify BOTH foreign key AND principal key
+modelBuilder.Entity<RecordOfSales>()
+    .HasOne(r => r.Car)
+    .WithMany(c => c.RecordsOfSales)
+    .HasForeignKey(r => r.CarLicensePlate)
+    .HasPrincipalKey(c => c.LicensePlate);
+```
+- Principal entity has an alternative key
+- Must explicitly configure both foreign key and principal key in Fluent API
+
+### Composite Foreign Keys
+
+```csharp
+public class Car
+{
+    public int CarId { get; set; }
+    public string LicensePlate { get; set; }
+    public string Status { get; set; }
+    public List<RecordOfSales> RecordsOfSales { get; set; }
+}
+
+public class RecordOfSales
+{
+    public int RecordOfSalesId { get; set; }
+    public string CarLicensePlate { get; set; }
+    public string CarStatus { get; set; }
+    public Car Car { get; set; }
+}
+
+// Configuration - Composite unique key and composite foreign key
+modelBuilder.Entity<Car>()
+    .HasMany(c => c.RecordsOfSales)
+    .WithOne(r => r.Car)
+    .HasForeignKey(s => new { s.CarLicensePlate, s.CarStatus })
+    .HasPrincipalKey(c => new { c.LicensePlate, c.Status });
+```
+- Foreign key consists of multiple columns
+- Must configure composite keys and foreign keys in Fluent API
+
+---
+
+## Important Relationship Tips
 
 ### Navigation Properties
-- Define relationships without manual FK configuration
-- EF Core auto-discovers related entities
-- Example: `public List<Post> Posts { get; set; }` in Blog model
+- **Collection Navigation**: `List<Post>` or `ICollection<Post>` (one-to-many)
+- **Reference Navigation**: `Blog Blog` (many-to-one or one-to-one)
+- EF Core auto-discovers relationships from navigation properties
+- You can have navigation on one side, both sides, or neither side
+
+### Foreign Key Naming Conventions
+EF Core automatically recognizes foreign keys if named:
+- `<NavigationPropertyName>Id` (e.g., `BlogId` for `Blog` navigation)
+- `<NavigationPropertyName><PrimaryKeyName>` (e.g., `BlogBlogId`)
+- `<PrincipalEntityName>Id` (e.g., `BlogId` for Blog entity)
+
+### Common Mistake: Duplicate Foreign Keys
+**Problem**: EF Core creates two foreign keys for the same relationship
+
+**Cause**: Not specifying navigation property in Fluent API when it exists in entity
+```csharp
+// WRONG - Creates two FKs
+.WithOne()  // EF Core creates one FK
+public Blog0 Blog0 { get; set; }  // EF Core creates another FK
+
+// CORRECT - Specify the navigation property
+.WithOne(p => p.Blog0)  // EF Core knows they're the same relationship
+```
+- Always specify the navigation property in Fluent API if it exists in your entity
+
+### Cascade Delete Behavior
+```csharp
+.OnDelete(DeleteBehavior.Cascade)     // Delete dependent when principal deleted
+.OnDelete(DeleteBehavior.Restrict)    // Prevent deletion if dependents exist
+.OnDelete(DeleteBehavior.SetNull)     // Set FK to null when principal deleted
+.OnDelete(DeleteBehavior.NoAction)    // No automatic action
+```
+Default: `Cascade` for required relationships, `SetNull` for optional
+
+---
+
+## Important Tips
 
 ### Composite Primary Keys
 ```csharp
@@ -125,6 +329,9 @@ modelBuilder.Ignore<Post>(); // Won't create table
 
 - **Blog**: Main entity with `url`, `Rating`, and navigation to Posts
 - **Post**: Related entity with `Title`, `Content`, and navigation to Blog
+- **Blog0/Post0**: Demonstrates one-to-many relationship configurations
+- **BlogImage**: Demonstrates one-to-one relationship
+- **Car/RecordOfSales**: Demonstrates foreign key to alternative (non-primary) key
 - **Book**: Demonstrates composite primary key, default values
 - **Author**: Demonstrates computed columns (DisplayName)
 - **Category**: Demonstrates identity column with byte type
@@ -142,6 +349,8 @@ modelBuilder.Ignore<Post>(); // Won't create table
 - **Always configure identity** for non-int primary key types
 - Use computed columns for derived data instead of storing redundant values
 - Set default values in database (not in code) for consistency
+- **Always specify navigation properties in Fluent API** if they exist in your entities
+- Use `HasPrincipalKey` when foreign key references non-primary key
 
 ---
 
@@ -160,6 +369,16 @@ modelBuilder.Ignore<Post>(); // Won't create table
 - **Problem**: Changes in OnModelCreating don't reflect in database
 - **Solution**: Create a new migration after configuration changes
 - Use `Add-Migration <name>` then `Update-Database`
+
+### 4. Duplicate Foreign Keys Created
+- **Problem**: EF Core creates two foreign keys for the same relationship (e.g., `Blog0Id` and `Blog0Id1`)
+- **Cause**: Navigation property exists in entity but not specified in Fluent API
+- **Solution**: Specify the navigation property: `.WithOne(p => p.Blog0)` instead of `.WithOne()`
+
+### 5. Alternative Key Relationship Errors
+- **Problem**: Cannot create relationship with non-primary key
+- **Solution**: Must use both `HasForeignKey()` AND `HasPrincipalKey()`
+- EF Core needs explicit guidance when not using primary key
 
 ---
 
@@ -185,13 +404,14 @@ Always exclude:
 ---
 
 ## Next Steps to Explore
-- Foreign key configurations
-- One-to-Many, Many-to-Many relationships
+- Many-to-Many relationships
 - Seeding data
 - Query operations (LINQ)
 - Change tracking
 - Eager/Lazy loading
 - Indexes and query optimization
+- Shadow properties
+- Owned entities
 
 ---
 

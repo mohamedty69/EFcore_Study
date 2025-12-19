@@ -14,9 +14,9 @@ class Program
         // which is the default value for byte type and it don`t use the identity column feature of the database so it will try to insert the same value again
         // that will cause a primary key violation exception (duplicate key)
         // to solve it make the identity property for the primary key in the OnModelCreating method of the ApplicationDbContext class or with data annotations
-        var cat = new Category { Name = "Science Fiction" };
-        _context.Categories.Add(cat);
-        _context.SaveChanges();
+        //var cat = new Category { Name = "Science Fiction" };
+        //_context.Categories.Add(cat);
+        //_context.SaveChanges();
 
     }
 }
