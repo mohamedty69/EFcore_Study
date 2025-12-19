@@ -148,6 +148,198 @@ public Blog0 Blog { get; set; }
 - Each entity has a reference to the other
 - Configuration sets up the one-to-one relationship
 
+### Many-to-Many Relationship
+
+**Definition**: A relationship where multiple records in one table can be associated with multiple records in another table (e.g., Students can enroll in many Courses, and Courses can have many Students).
+
+#### Method 1: Direct Many-to-Many (Simple Approach)
+
+**When to Use**: 
+- You only need the relationship (no extra data like enrollment date, grade, etc.)
+- You don't need to query the join table directly
+- EF Core manages the join table automatically
+
+```csharp
+// Entity Classes - Only collection navigations needed
+public class Student
+{
+    public int StudentId { get; set; }
+    public string Name { get; set; }
+    public ICollection<Course> Courses { get; set; }  // Collection navigation
+}
+
+public class Course
+{
+    public int CourseId { get; set; }
+    public string Title { get; set; }
+    public ICollection<Student> Students { get; set; }  // Collection navigation
+}
+
+// Configuration - EF Core creates join table automatically
+modelBuilder.Entity<Student>()
+    .HasMany(s => s.Courses)
+    .WithMany(c => c.Students);
+
+// OR customize the join table name
+modelBuilder.Entity<Student>()
+    .HasMany(s => s.Courses)
+    .WithMany(c => c.Students)
+    .UsingEntity(j => j.ToTable("Student_Course_Custom"));
+```
+
+**What EF Core Creates**:
+- Join table named `CourseStudent` by default
+- Composite primary key: `(StudentsStudentId, CoursesCourseId)`
+- Two foreign keys referencing Student and Course tables
+
+#### Method 2: Explicit Join Entity with UsingEntity (Advanced)
+
+**When to Use**:
+- You need extra properties in the join table (enrollment date, grade, status, etc.)
+- You want full control over the join table configuration
+- You still want to use collection navigations on both sides
+
+```csharp
+// Entity Classes
+public class Student
+{
+    public int StudentId { get; set; }
+    public string Name { get; set; }
+    public ICollection<Course> Courses { get; set; }  // Many-to-many navigation
+    public List<StudentCourse> StudentCourses { get; set; }  // Access to join entity
+}
+
+public class Course
+{
+    public int CourseId { get; set; }
+    public string Title { get; set; }
+    public ICollection<Student> Students { get; set; }  // Many-to-many navigation
+    public List<StudentCourse> StudentCourses { get; set; }  // Access to join entity
+}
+
+// Join Entity with Additional Properties
+public class StudentCourse
+{
+    public int StudentId { get; set; }
+    public Student Student { get; set; }
+    
+    public int CourseId { get; set; }
+    public Course Course { get; set; }
+    
+    public DateTime EnrollmentDate { get; set; }  // Extra property!
+}
+
+// Configuration with UsingEntity
+modelBuilder.Entity<Student>()
+    .HasMany(s => s.Courses)
+    .WithMany(c => c.Students)
+    .UsingEntity<StudentCourse>(
+        // Configure Course -> StudentCourse relationship
+        j => j
+            .HasOne(sc => sc.Course)
+            .WithMany(c => c.StudentCourses)
+            .HasForeignKey(sc => sc.CourseId),
+        
+        // Configure Student -> StudentCourse relationship
+        j => j
+            .HasOne(sc => sc.Student)
+            .WithMany(s => s.StudentCourses)
+            .HasForeignKey(sc => sc.StudentId),
+        
+        // Configure join entity properties
+        j =>
+        {
+            j.HasKey(k => new { k.StudentId, k.CourseId });  // Composite PK
+            j.Property(p => p.EnrollmentDate).HasDefaultValueSql("GETDATE()");
+        }
+    );
+```
+
+**Important Notes about UsingEntity**:
+- **First lambda**: Configures the relationship from join entity to the **right side** (Course)
+- **Second lambda**: Configures the relationship from join entity to the **left side** (Student)
+- **Third lambda** (optional): Additional configuration for the join entity itself
+- You can still access both `student.Courses` (direct) and `student.StudentCourses` (with extra data)
+
+#### Method 3: Indirect Many-to-Many (Two One-to-Many)
+
+**When to Use** (Best Practice for Beginners):
+- You need extra properties in the join table
+- You want explicit control and clarity
+- You don't need the direct collection navigations
+- Easier to understand and debug
+
+```csharp
+// Entity Classes - NO direct many-to-many navigations
+public class Student
+{
+    public int StudentId { get; set; }
+    public string Name { get; set; }
+    public List<StudentCourse> StudentCourses { get; set; }  // Only join entity navigation
+}
+
+public class Course
+{
+    public int CourseId { get; set; }
+    public string Title { get; set; }
+    public List<StudentCourse> StudentCourses { get; set; }  // Only join entity navigation
+}
+
+// Join Entity
+public class StudentCourse
+{
+    public int StudentId { get; set; }
+    public Student Student { get; set; }
+    
+    public int CourseId { get; set; }
+    public Course Course { get; set; }
+    
+    public DateTime EnrollmentDate { get; set; }
+}
+
+// Configuration - Three separate steps
+// Step 1: Configure composite primary key
+modelBuilder.Entity<StudentCourse>()
+    .HasKey(k => new { k.StudentId, k.CourseId });
+
+// Step 2: Configure first one-to-many relationship (Student -> StudentCourse)
+modelBuilder.Entity<StudentCourse>()
+    .HasOne(sc => sc.Student)
+    .WithMany(s => s.StudentCourses)
+    .HasForeignKey(sc => sc.StudentId);
+
+// Step 3: Configure second one-to-many relationship (Course -> StudentCourse)
+modelBuilder.Entity<StudentCourse>()
+    .HasOne(sc => sc.Course)
+    .WithMany(c => c.StudentCourses)
+    .HasForeignKey(sc => sc.CourseId);
+
+// Step 4: Add default values or other configurations
+modelBuilder.Entity<StudentCourse>()
+    .Property(p => p.EnrollmentDate)
+    .HasDefaultValueSql("GETDATE()");
+```
+
+**Advantages of This Approach**:
+- Very clear and explicit - easy to understand
+- Each relationship is configured separately
+- Full control over all aspects
+- Easier to troubleshoot
+- Recommended for beginners
+
+**Disadvantages**:
+- More verbose configuration
+- No direct `student.Courses` navigation (must use `student.StudentCourses.Select(sc => sc.Course)`)
+
+#### Comparison: Which Method to Choose?
+
+| Scenario | Recommended Approach |
+|----------|---------------------|
+| Simple relationship, no extra data | Direct Many-to-Many (Method 1) |
+| Need extra properties + want direct navigation | UsingEntity (Method 2) |
+| Need extra properties + learning EF Core | Indirect (Method 3) |
+| Complex business logic in join table | Indirect (Method 3) |
+
 ### Relationships with Non-Primary Key (Alternative Key)
 
 **Important**: When foreign key doesn't reference the primary key of the principal entity.
@@ -213,7 +405,7 @@ modelBuilder.Entity<Car>()
 ## Important Relationship Tips
 
 ### Navigation Properties
-- **Collection Navigation**: `List<Post>` or `ICollection<Post>` (one-to-many)
+- **Collection Navigation**: `List<Post>` or `ICollection<Post>` (one-to-many or many-to-many)
 - **Reference Navigation**: `Blog Blog` (many-to-one or one-to-one)
 - EF Core auto-discovers relationships from navigation properties
 - You can have navigation on one side, both sides, or neither side
@@ -238,6 +430,43 @@ public Blog0 Blog0 { get; set; }  // EF Core creates another FK
 ```
 - Always specify the navigation property in Fluent API if it exists in your entity
 
+### Many-to-Many Common Issues
+
+#### Issue 1: UsingEntity Lambda Order
+**Problem**: Compilation error or incorrect relationship configuration
+
+**Cause**: Wrong order of lambdas in `UsingEntity`
+
+**Solution**: First lambda = right entity (Course), Second lambda = left entity (Student)
+```csharp
+// CORRECT ORDER
+.UsingEntity<StudentCourse>(
+    j => j.HasOne(sc => sc.Course)...,      // RIGHT side first
+    j => j.HasOne(sc => sc.Student)...,     // LEFT side second
+    j => { /* additional config */ }
+);
+```
+
+#### Issue 2: Mixing Direct and Indirect Approaches
+**Problem**: Having both `ICollection<Course> Courses` and configuring as indirect
+
+**Cause**: Confusion about which approach to use
+
+**Solution**: Choose one approach:
+- **Direct/UsingEntity**: Keep `ICollection<Course> Courses` and `ICollection<Student> Students`
+- **Indirect**: Remove these, keep only `List<StudentCourse>` on both sides
+
+#### Issue 3: Forgetting Composite Primary Key
+**Problem**: Duplicate enrollment records in join table
+
+**Cause**: Not configuring composite primary key on join entity
+
+**Solution**: Always set composite PK for join tables
+```csharp
+modelBuilder.Entity<StudentCourse>()
+    .HasKey(k => new { k.StudentId, k.CourseId });
+```
+
 ### Cascade Delete Behavior
 ```csharp
 .OnDelete(DeleteBehavior.Cascade)     // Delete dependent when principal deleted
@@ -246,6 +475,11 @@ public Blog0 Blog0 { get; set; }  // EF Core creates another FK
 .OnDelete(DeleteBehavior.NoAction)    // No automatic action
 ```
 Default: `Cascade` for required relationships, `SetNull` for optional
+
+**Important for Many-to-Many**: 
+- Deleting a Student will cascade delete their enrollments (StudentCourse records)
+- The Course records themselves remain intact
+- Same applies when deleting a Course
 
 ---
 
@@ -332,6 +566,7 @@ modelBuilder.Ignore<Post>(); // Won't create table
 - **Blog0/Post0**: Demonstrates one-to-many relationship configurations
 - **BlogImage**: Demonstrates one-to-one relationship
 - **Car/RecordOfSales**: Demonstrates foreign key to alternative (non-primary) key
+- **Student/Course/StudentCourse**: Demonstrates many-to-many relationships (all three approaches)
 - **Book**: Demonstrates composite primary key, default values
 - **Author**: Demonstrates computed columns (DisplayName)
 - **Category**: Demonstrates identity column with byte type
@@ -351,6 +586,15 @@ modelBuilder.Ignore<Post>(); // Won't create table
 - Set default values in database (not in code) for consistency
 - **Always specify navigation properties in Fluent API** if they exist in your entities
 - Use `HasPrincipalKey` when foreign key references non-primary key
+- **For many-to-many**: 
+  - Use direct approach for simple relationships without extra data
+  - Use indirect approach (two one-to-many) for learning or complex scenarios
+  - Use `UsingEntity` when you need both direct navigation AND extra properties
+  - Always configure composite primary key on join tables
+- **Querying many-to-many**:
+  - Direct: `student.Courses` gives you courses directly
+  - Indirect: `student.StudentCourses.Select(sc => sc.Course)` to get courses
+  - UsingEntity: Both `student.Courses` (direct) and `student.StudentCourses` (with extra data)
 
 ---
 
@@ -380,6 +624,21 @@ modelBuilder.Ignore<Post>(); // Won't create table
 - **Solution**: Must use both `HasForeignKey()` AND `HasPrincipalKey()`
 - EF Core needs explicit guidance when not using primary key
 
+### 6. Many-to-Many Duplicate Enrollments
+- **Problem**: Same student enrolled in same course multiple times
+- **Cause**: Missing composite primary key on join table
+- **Solution**: Configure composite PK: `.HasKey(k => new { k.StudentId, k.CourseId })`
+
+### 7. UsingEntity Configuration Error
+- **Problem**: "Both lambda expressions must return the same type" error
+- **Cause**: Wrong order or incomplete lambda configuration in `UsingEntity`
+- **Solution**: Ensure first lambda configures right entity, second configures left entity
+
+### 8. Cannot Access Course from Student Directly (Indirect Approach)
+- **Problem**: `student.Courses` doesn't exist
+- **Cause**: Using indirect approach without `ICollection<Course>` navigation
+- **Solution**: This is expected - use `student.StudentCourses.Select(sc => sc.Course)` or switch to direct/UsingEntity approach
+
 ---
 
 ## Git Best Practices
@@ -404,7 +663,6 @@ Always exclude:
 ---
 
 ## Next Steps to Explore
-- Many-to-Many relationships
 - Seeding data
 - Query operations (LINQ)
 - Change tracking
@@ -412,6 +670,7 @@ Always exclude:
 - Indexes and query optimization
 - Shadow properties
 - Owned entities
+- Table-per-hierarchy (TPH) and Table-per-type (TPT) inheritance
 
 ---
 

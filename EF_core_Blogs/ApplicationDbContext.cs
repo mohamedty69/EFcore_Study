@@ -1,5 +1,4 @@
-﻿using EF_core_Blogs.Models;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Client;
 using System;
 using System.Collections.Generic;
@@ -128,9 +127,56 @@ namespace EF_core_Blogs
             //    .WithOne(r => r.Car)
             //    .HasForeignKey(s => new {s.CarLicensePlate, s.CarStatus })
             //    .HasPrincipalKey(c => new { c.LicensePlate, c.Status });
+
+            // for many-to-many relationship between Student and Course entities using a join table with a custom name
+            //modelBuilder.Entity<Student>()
+            //    .HasMany(s => s.Courses)
+            //    .WithMany(c => c.Students)
+            //    .UsingEntity(j => j.ToTable("Student_Course_Test"));
+
+
+            //modelBuilder.Entity<Course>()
+            //    .HasMany(c => c.Students)
+            //    .WithMany(s => s.Courses)
+            //    .UsingEntity<StudenCourse>(
+            //    j => j
+            //    .HasOne(p => p.Student)
+            //    .WithMany(b => b.StudenCourse)
+            //    .HasForeignKey(p => p.StudentId),
+            //    j => j
+            //    .HasOne(p => p.Course)
+            //    .WithMany(b => b.StudenCourse)
+            //    .HasForeignKey(p => p.CourseId),
+            //    j => 
+            //    {
+            //        j.Property(p => p.EnrollmentDate).HasDefaultValueSql("GETDATE()");
+            //        j.HasKey(k => new { k.CourseId, k.StudentId });
+            //    }
+            //    );
+
+            // there is easier way for the beginners (indirect many-to-many relationship) needs to remove the nav Icollection<> prop from the classes
+            // First : the composite PK
+            modelBuilder.Entity<StudenCourse>()
+                .HasKey(k => new { k.StudentId, k.CourseId });
+
+            // second : the first relation (one-to-many)
+            modelBuilder.Entity<StudenCourse>()
+                .HasOne(s => s.Student)
+                .WithMany(sc => sc.StudenCourse)
+                .HasForeignKey(fk => fk.StudentId);
+
+            // third the other one-to-many relationship
+            modelBuilder.Entity<StudenCourse>()
+                .HasOne(c => c.Course)
+                .WithMany(sc => sc.StudenCourse)
+                .HasForeignKey(fk => fk.CourseId);
+
+            // add default value
+            modelBuilder.Entity<StudenCourse>()
+                .Property(p => p.EnrollmentDate).HasDefaultValueSql("GETDATE()");
         }
         // public DbSet<Blog0> Blogs0 { get; set; }
-        public DbSet<Car> Cars { get; set; }
+        public DbSet<Student> Students { get; set; }
     }
 }
 public class Blog0
@@ -185,5 +231,32 @@ public class RecordOfSales
     public string CarStatus { get; set; }
     public Car Car { get; set; }
 
+}
+
+// for many-to-many relationship
+// First definie : It can defined by using a collection navigation property in both entities
+// best practice is to make the relation that you make a third class and make two one-to-many relationships
+public class Student
+{
+    public int StudentId { get; set; }
+    public string Name { get; set; }
+    
+    public List<StudenCourse> StudenCourse { get; set; }
+}
+public class Course
+{
+    public int CourseId { get; set; }
+    public string Title { get; set; }
+    public List<StudenCourse> StudenCourse { get; set; }
+
+
+}
+public class  StudenCourse
+{
+    public Student Student { get; set; }
+    public int StudentId { get; set; }
+    public Course Course { get; set; }
+    public int CourseId { get; set; }
+    public DateTime EnrollmentDate { get; set; }    
 }
 
